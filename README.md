@@ -16,7 +16,7 @@ graph TD
     LLMPL -->|provider SDK| LLM[(LLM Provider)]
     LLM -->|hints & usage| LLMPL
     LLMPL -->|AssessmentResponse| Agent
-    Agent -->|OPA/Rego input\n(evidence + hints)| POL[Policy Engine]
+    Agent -->|OPA/Rego input-evidence + hints| POL[Policy Engine]
     POL -->|pass/fail & findings| Agent
     Agent -->|report| API[(Compliance API)]
 ```
