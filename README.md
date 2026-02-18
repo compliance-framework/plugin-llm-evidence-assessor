@@ -9,15 +9,15 @@ Generates advisory “hints” (confidence, rationale, citations) from redacted 
 
 ## Architecture
 ```mermaid
-flowchart TD
-    Agent[Agent] -->|schedule + plugin config| EP[Evidence Plugins (e.g., File Attestation)]
+graph TD
+    Agent[Agent] -->|schedule & config| EP[Evidence Plugins]
     EP -->|evidence JSON| Agent
-    Agent -->|summarize + redact| LLMPL[LLM Evidence Assessor Plugin]
-    LLMPL -->|Provider SDK| LLM[(LLM Provider)]
-    LLM -->|hints + usage| LLMPL
+    Agent -->|summarize & redact| LLMPL[LLM Evidence Assessor]
+    LLMPL -->|provider SDK| LLM[(LLM Provider)]
+    LLM -->|hints & usage| LLMPL
     LLMPL -->|AssessmentResponse| Agent
-    Agent -->|OPA/Rego input: evidence + hints| POL[Policy Engine]
-    POL -->|pass/fail + findings| Agent
+    Agent -->|OPA/Rego input\n(evidence + hints)| POL[Policy Engine]
+    POL -->|pass/fail & findings| Agent
     Agent -->|report| API[(Compliance API)]
 ```
 
@@ -99,7 +99,7 @@ docker run --rm -i \
 ## Environment Variables
 - LLM_DRY_RUN=true: bypass provider calls and return fake JSON
 - LLM_REQ_FILE=/path/to/req.json: file-based request input (alternative to stdin)
-- LLM_FAKE_JSON/LLM_FAKE_JSON_FILE: inject fake AssessmentResponse JSON for testing
+- LLM_FAKE_JSON / LLM_FAKE_JSON_FILE: inject fake AssessmentResponse JSON for testing
 - OPENAI_API_KEY: provider key (for live calls)
 - OPENAI_BASE_URL: override endpoint if using a proxy
 
@@ -130,7 +130,7 @@ plugins:
 ```
 
 ## Rego Interaction
-Hints are non-authoritative inputs; policies remain deterministic. Example patterns:
+Hints are non-authoritative inputs; policies remain deterministic. Example pattern:
 ```rego
 package compliance_framework.controls.ac_coverage
 
