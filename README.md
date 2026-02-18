@@ -150,3 +150,5 @@ go test ./... -v
 
 ## Design
 See docs/DESIGN.md for detailed architecture, security, and rollout.
+
+See docs/FLOW.md for concrete request/response examples and Rego input flow.
