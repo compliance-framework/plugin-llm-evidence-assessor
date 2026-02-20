@@ -6,18 +6,17 @@ This document shows the end-to-end flow and concrete JSON examples for how the L
 ## Architecture (Mermaid)
 ```mermaid
 graph TD
-    Agent[Agent] -->|schedule & config| EP[Evidence Plugins]
-    EP -->|evidence JSON| Agent
-    Agent -->|summarize & redact| LLMPL[LLM Evidence Assessor]
-    LLMPL -->|provider SDK| LLM[(LLM Provider)]
-    LLM -->|hints & usage| LLMPL
-    LLMPL -->|AssessmentResponse| Agent
-    Agent -->|OPA-Rego input\n evidence + hints| POL[Policy Engine]
-    POL -->|pass-fail & findings| Agent
-    Agent -->|report| API[(Compliance API)]
+    Agent[Agent] -->|schedule & config| LLMPL[LLM Evidence Assessor]
+    LLMPL -->|labels & time window| API[(Compliance API)]
+    API -->|evidence JSON| LLMPL
+    LLMPL -->|allowlisted summaries| LLM[(LLM Provider)]
+    LLM -->|advisory JSON| LLMPL
+    LLMPL -->|llm_policy_result| API
+    API -->|deterministic evaluation| OPA[OPA/Rego]
+    OPA -->|pass/fail & findings| API
 ```
 
-## AssessmentRequest (Agent → LLM Plugin)
+## AssessmentRequest (Constructed by Plugin)
 ```json
 {
   "policyContext": {
@@ -28,21 +27,17 @@ graph TD
     {
       "controlId": "AC-1",
       "evidenceId": "sarif:todo-app",
-      "contentSummary": "SARIF shows 2 High, 1 Medium findings for access controls in todo-app",
+      "contentSummary": "High:2, Medium:1, tool:golangci-lint, categories:[access-control]",
       "artifactMeta": {
-        "source": "file-attestation",
-        "path": "/workspace/out_sarif.json",
-        "sha256": "8d1f...c0a"
+        "basename": "out_sarif.json"
       }
     },
     {
       "controlId": "AC-2",
       "evidenceId": "attest:golangci",
-      "contentSummary": "Attestation exists and signer=alice@example.com for .golangci.yml",
+      "contentSummary": "attestation_exists:true, signer_approved:true, issuer_approved:true",
       "artifactMeta": {
-        "path": "/workspace/.golangci.yml",
-        "attestation": "/workspace/.sigstore/.golangci.yml.bundle",
-        "signer": "alice@example.com"
+        "basename": ".golangci.yml"
       }
     }
   ],
@@ -84,14 +79,13 @@ graph TD
 }
 ```
 
-## OPA/Rego Input (Agent → Policy Engine)
+## OPA/Rego Input (Deterministic Path)
 ```json
 {
   "evidence": {
     "files": {
       "sarif": {
         "id": "sarif:todo-app",
-        "path": "/workspace/out_sarif.json",
         "summary": { "high": 2, "medium": 1 }
       }
     },
@@ -99,7 +93,8 @@ graph TD
       "golangci": {
         "id": "attest:golangci",
         "exists": true,
-        "signer": "alice@example.com"
+        "signerApproved": true,
+        "issuerApproved": true
       }
     }
   },
@@ -108,15 +103,15 @@ graph TD
       "controlId": "AC-1",
       "hintCategory": "coverage",
       "confidence": 0.85,
-      "rationale": "SARIF indicates repeated high-severity issues around access control constraints; potential gaps in implementation.",
-      "citations": ["artifact:sarif:todo-app"]
+      "rationale": "Coverage concern based on severity distribution",
+      "citations": ["evidence:sarif:todo-app"]
     },
     {
       "controlId": "AC-2",
       "hintCategory": "assurance",
       "confidence": 0.72,
-      "rationale": "Attestation present; signer matches approved identity; moderate assurance.",
-      "citations": ["artifact:attest:golangci"]
+      "rationale": "Attestation present with approved signer",
+      "citations": ["evidence:attest:golangci"]
     }
   ],
   "context": {

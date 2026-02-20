@@ -6,10 +6,11 @@
 - Maintain strong security boundaries through out-of-process execution and data minimization.
 
 ## Architecture
-- Agent schedules evidence plugins (e.g., file-attestation) and collects evidence.
-- Agent summarizes and redacts evidence, then invokes the LLM plugin.
-- LLM plugin calls the provider, parses JSON hints, and returns an AssessmentResponse.
-- Agent applies OPA/Rego policies with evidence + hints and reports findings.
+- Agent schedules the LLM plugin like any other plugin; no data flows through the agent.
+- The LLM plugin fetches recent evidence from the Compliance API using label selectors and a time window.
+- The plugin summarizes/redacts evidence into allowlisted signals and calls the LLM provider.
+- The plugin publishes advisory results as `llm_policy_result` back to the API with provenance and citations.
+- OPA/Rego evaluates deterministically on evidence; advisory artifacts are available for review and do not affect pass/fail.
 
 ## Data Contracts
 - EvidenceSummary: controlId, evidenceId, contentSummary, artifactMeta.

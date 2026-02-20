@@ -10,15 +10,14 @@ Generates advisory “hints” (confidence, rationale, citations) from redacted 
 ## Architecture
 ```mermaid
 graph TD
-    Agent[Agent] -->|schedule & config| EP[Evidence Plugins]
-    EP -->|evidence JSON| Agent
-    Agent -->|summarize & redact| LLMPL[LLM Evidence Assessor]
-    LLMPL -->|provider SDK| LLM[(LLM Provider)]
-    LLM -->|hints & usage| LLMPL
-    LLMPL -->|AssessmentResponse| Agent
-    Agent -->|OPA/Rego input-evidence + hints| POL[Policy Engine]
-    POL -->|pass/fail & findings| Agent
-    Agent -->|report| API[(Compliance API)]
+    Agent[Agent] -->|schedule & config| LLMPL[LLM Evidence Assessor]
+    LLMPL -->|labels & time window| API[(Compliance API)]
+    API -->|evidence JSON| LLMPL
+    LLMPL -->|allowlisted summaries| LLM[(LLM Provider)]
+    LLM -->|advisory JSON| LLMPL
+    LLMPL -->|llm_policy_result| API
+    API -->|deterministic evaluation| OPA[OPA/Rego]
+    OPA -->|pass/fail & findings| API
 ```
 
 ## Data Contracts
@@ -40,45 +39,30 @@ go build -o llm-assessor
 ```
 
 ## Local Usage
-Dry-run (no provider call):
+Fetch → Summarize → Assess (dry-run, no provider call):
 ```bash
-cat >/tmp/llm_req.json <<'JSON'
-{
-  "policyContext": {},
-  "evidence": [],
-  "constraints": {
-    "provider": "openai",
-    "model": "gpt-4.1-mini",
-    "maxTokens": 1000,
-    "temperature": 0
-  }
-}
-JSON
-
-LLM_DRY_RUN=true LLM_REQ_FILE=/tmp/llm_req.json ./llm-assessor
+LLM_DRY_RUN=true \
+API_URL=http://localhost:8080 \
+EVIDENCE_LABELS_JSON='{"team":"ccf","repository":"todo-app"}' \
+TIME_WINDOW=24h \
+POLICY_FRAMEWORK="NIST 800-53" POLICY_BASELINE="Moderate" \
+PROVIDER=openai MODEL=gpt-4.1-mini MAX_TOKENS=800 TEMPERATURE=0.2 \
+./llm-assessor
 ```
 
-Injecting fake hints (end-to-end without provider):
+Publish advisory results (dry-run with fake hints):
 ```bash
-cat >/tmp/llm_req_hints.json <<'JSON'
-{
-  "policyContext": {},
-  "evidence": [
-    {"controlId": "AC-1", "evidenceId": "E1", "contentSummary": "SARIF shows 2 High, 1 Medium"}
-  ],
-  "constraints": {
-    "provider": "openai",
-    "model": "gpt-4.1-mini",
-    "maxTokens": 1000,
-    "temperature": 0
-  }
-}
-JSON
-
-printf '%s' '{"hints":[{"controlId":"AC-1","hintCategory":"coverage","confidence":0.85,"rationale":"Findings indicate partial control coverage","citations":["artifact:E1"]}]}' > /tmp/fake_hints.json
+printf '%s' \
+'{"hints":[{"controlId":"AC-1","hintCategory":"coverage","confidence":0.85,"rationale":"Coverage concern","citations":["evidence:sarif:todo-app"]}]}' \
+> /tmp/fake_hints.json
 
 LLM_DRY_RUN=true \
-LLM_REQ_FILE=/tmp/llm_req_hints.json \
+API_URL=http://localhost:8080 \
+API_TOKEN=${CCF_API_TOKEN:-} \
+EVIDENCE_LABELS_JSON='{"team":"ccf","repository":"todo-app"}' \
+TIME_WINDOW=24h \
+PUBLISH_HINTS=true \
+PUBLISH_LABELS_JSON='{"team":"ccf","repository":"todo-app","framework":"NIST-800-53"}' \
 LLM_FAKE_JSON_FILE=/tmp/fake_hints.json \
 ./llm-assessor
 ```
@@ -97,37 +81,17 @@ docker run --rm -i \
 ```
 
 ## Environment Variables
-- LLM_DRY_RUN=true: bypass provider calls and return fake JSON
-- LLM_REQ_FILE=/path/to/req.json: file-based request input (alternative to stdin)
-- LLM_FAKE_JSON / LLM_FAKE_JSON_FILE: inject fake AssessmentResponse JSON for testing
-- OPENAI_API_KEY: provider key (for live calls)
-- OPENAI_BASE_URL: override endpoint if using a proxy
+- API_URL, API_TOKEN
+- EVIDENCE_LABELS_JSON, TIME_WINDOW (e.g., 24h)
+- LLM_DRY_RUN (true/false)
+- LLM_FAKE_JSON / LLM_FAKE_JSON_FILE (testing)
+- PROVIDER, MODEL, MAX_TOKENS, TEMPERATURE
+- PUBLISH_HINTS (true/false), PUBLISH_LABELS_JSON
+- OPENAI_API_KEY (live calls), OPENAI_BASE_URL (optional)
 
-## Agent Integration (YAML)
-```yaml
-daemon: false
-verbosity: 0
-
-api:
-  url: http://api:8080
-
-plugins:
-  llm_evidence_assessor:
-    schedule: "*/5 * * * *"
-    source: plugin-llm-evidence-assessor:local
-    policies:
-      - ghcr.io/compliance-framework/plugin-file-attestation-policies:v0.1.0
-    config:
-      evidence_inputs:
-        - plugin_ref: file_attestation_sarif
-          control_families: ["AC","IA"]
-      provider: "openai"
-      model: "gpt-4.1-mini"
-      max_tokens: 1000
-      temperature: 0.2
-      redaction_rules: "default"
-      policy_labels: '{"tier":"vcs","team":"ccf","repository":"todo-app","organization":"compliance-framework"}'
-```
+## Agent Integration
+- No agent changes are required. The agent schedules the plugin like any other plugin.
+- The plugin fetches evidence directly from the API using label selectors and time windows, then optionally publishes `llm_policy_result` back to the API.
 
 ## Rego Interaction
 Hints are non-authoritative inputs; policies remain deterministic. Example pattern:
@@ -151,4 +115,6 @@ go test ./... -v
 ## Design
 See docs/DESIGN.md for detailed architecture, security, and rollout.
 
-See docs/FLOW.md for concrete request/response examples and Rego input flow.
+See docs/END_TO_END.md for the end-to-end flow and env configuration.
+
+See docs/FLOW.md for concrete examples; note that the plugin now constructs the request from API evidence (the agent does not pass evidence payloads).
