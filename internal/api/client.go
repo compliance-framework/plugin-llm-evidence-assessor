@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
@@ -36,20 +35,48 @@ func NewClient(base string, token string) *Client {
 	}
 }
 
+// labelfilter request payloads (minimal representation)
+type lfCondition struct {
+	Label    string `json:"label,omitempty"`
+	Operator string `json:"operator,omitempty"`
+	Value    string `json:"value,omitempty"`
+}
+type lfScope struct {
+	Condition *lfCondition `json:"condition,omitempty"`
+	Query     *lfQuery     `json:"query,omitempty"`
+}
+type lfQuery struct {
+	Operator string    `json:"operator"`
+	Scopes   []lfScope `json:"scopes"`
+}
+type lfFilter struct {
+	Scope *lfScope `json:"scope"`
+}
+type searchRequest struct {
+	Filter lfFilter `json:"filter"`
+}
+
 func (c *Client) ListEvidence(ctx context.Context, labels map[string]string, since time.Time) ([]EvidenceItem, error) {
-	u, _ := url.Parse(c.base + "/evidence")
-	q := u.Query()
+	var scopes []lfScope
 	for k, v := range labels {
-		q.Set("label."+k, v)
+		scopes = append(scopes, lfScope{Condition: &lfCondition{Label: k, Operator: "=", Value: v}})
 	}
-	if !since.IsZero() {
-		q.Set("since", since.UTC().Format(time.RFC3339))
+	body := searchRequest{
+		Filter: lfFilter{
+			Scope: &lfScope{
+				Query: &lfQuery{
+					Operator: "AND",
+					Scopes:   scopes,
+				},
+			},
+		},
 	}
-	u.RawQuery = q.Encode()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/evidence/search", strings.NewReader(string(b)))
 	if c.tok != "" {
 		req.Header.Set("Authorization", "Bearer "+c.tok)
 	}
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err

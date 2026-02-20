@@ -118,3 +118,5 @@ See docs/DESIGN.md for detailed architecture, security, and rollout.
 See docs/END_TO_END.md for the end-to-end flow and env configuration.
 
 See docs/FLOW.md for concrete examples; note that the plugin now constructs the request from API evidence (the agent does not pass evidence payloads).
+
+See docs/LOCAL_TESTING.md for a reproducible local setup, seeding examples, and dry‑run commands.
